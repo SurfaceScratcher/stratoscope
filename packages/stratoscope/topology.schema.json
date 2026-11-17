@@ -1,0 +1,310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/stratoscope/topology.schema.json",
+  "title": "stratoscope topology",
+  "description": "Connected data as stacked layers. Edges point from the dependent to what it depends on. A domain profile (inline or by name) sets shapes, colours, wording and how failures travel. Cross-references (edge targets, node layers) are checked by validateTopology().",
+  "type": "object",
+  "required": [
+    "layers",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "name": {
+      "type": "string"
+    },
+    "profile": {
+      "description": "Domain of the data: the name of a profile the app knows or a whole profile. Decides shapes, colours, wording and how failures travel. Default: the neutral default profile.",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "$ref": "#/$defs/profile"
+        }
+      ]
+    },
+    "layers": {
+      "description": "Bottom to top.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "columns": {
+      "description": "Order of the layout columns, e.g. hosts or repositories.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "type",
+          "layer"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "description": "Kind of node; its look comes from the profile.",
+            "type": "string",
+            "minLength": 1
+          },
+          "layer": {
+            "type": "string",
+            "minLength": 1
+          },
+          "column": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "role": {
+            "description": "Free-form role; the profile can give roles their own shape.",
+            "type": "string"
+          },
+          "check": {
+            "description": "Probe target for health checks, e.g. https://app.example.com or tcp://10.0.0.5:22.",
+            "type": "string"
+          },
+          "status": {
+            "description": "State reported by the source, e.g. a failed CI step. Live health checks take precedence.",
+            "enum": [
+              "ok",
+              "down",
+              "suspect",
+              "unknown"
+            ]
+          },
+          "offset": {
+            "description": "[x, z] offset relative to the computed position.",
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "meta": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "kind"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "minLength": 1
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "description": "Kind of edge; the profile says how it looks and whether failures travel along it.",
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "shape": {
+      "enum": [
+        "box",
+        "wide",
+        "slab",
+        "hexagon",
+        "ring",
+        "diamond",
+        "cylinder"
+      ]
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "nodeTypes",
+        "edgeKinds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "anchorLayer": {
+          "description": "Layer placed on a grid per column and group; all other layers follow from it. Default: the bottom layer.",
+          "type": "string",
+          "minLength": 1
+        },
+        "anchorGroups": {
+          "description": "3D: groups of the anchor layer one behind the other (rows, default) or side by side (columns).",
+          "enum": [
+            "rows",
+            "columns"
+          ]
+        },
+        "nodeTypes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "shape": {
+                "$ref": "#/$defs/shape"
+              },
+              "color": {
+                "type": "string"
+              },
+              "emphasis": {
+                "description": "Bold label.",
+                "type": "boolean"
+              },
+              "labelOnHover": {
+                "description": "3D: label only on hover, selection or trouble.",
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "roles": {
+          "description": "Shape overrides by node.role.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "shape"
+            ],
+            "properties": {
+              "shape": {
+                "$ref": "#/$defs/shape"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "edgeKinds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "description": "[outgoing, incoming] wording.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "line": {
+                "enum": [
+                  "solid",
+                  "dashed"
+                ]
+              },
+              "color": {
+                "type": "string"
+              },
+              "faint": {
+                "type": "boolean"
+              },
+              "propagates": {
+                "description": "A failure travels along this edge (default true).",
+                "type": "boolean"
+              },
+              "structural": {
+                "description": "A working source proves the target works (health analysis).",
+                "type": "boolean"
+              },
+              "proxy": {
+                "description": "Leads to a front that answers even if the source fails.",
+                "type": "boolean"
+              },
+              "pull": {
+                "description": "3D layout: how strongly the edge pulls a node towards its neighbour.",
+                "type": "number"
+              },
+              "impliedByColumn": {
+                "description": "Columns view: not drawn within one card.",
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "defaultShape": {
+          "$ref": "#/$defs/shape"
+        },
+        "looseColumn": {
+          "description": "Name of the column for nodes without a column. Default 'Other'.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

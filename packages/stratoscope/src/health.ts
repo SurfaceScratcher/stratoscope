@@ -1,0 +1,130 @@
+import { resolveProfile, proxyKinds as profileProxyKinds, structuralKinds as profileStructuralKinds, type DomainProfile } from './profile.js';
+import type { EdgeKind, GraphNode, NodeStatus, Topology } from './types.js';
+
+/**
+ * Root-cause analysis from outside-in checks: only some nodes (e.g. endpoints) are probed, yet
+ * the dependency graph narrows down which node below them is to blame. Which edges count is up
+ * to the profile (`structural`, `proxy`).
+ *
+ * 1. A reachable endpoint proves that everything it structurally depends on is running.
+ * 2. Suspects of a failed endpoint are its dependencies that no reachable endpoint cleared.
+ * 3. If the reverse proxy answered (even with an error), the proxy and everything below it run.
+ * 4. Causes that explain the most failures rank first; on a tie the deeper layer wins.
+ */
+
+/** Result of probing one endpoint. */
+export interface CheckResult {
+  /** true = reachable, false = failed, null/undefined = not checked yet. */
+  ok: boolean | null | undefined;
+  /** The reverse proxy in front of the endpoint answered, even if with an error status. */
+  answered?: boolean;
+}
+
+export interface HealthOptions {
+  /** Says which edge kinds are structural and which lead to a proxy. Default: the topology's (`topology.profile`), else DEFAULT_PROFILE. */
+  profile?: DomainProfile;
+  /**
+   * Edge kinds that a running service actually needs at runtime; overrides the profile. Loose
+   * couplings such as the image registry, the login service or a backup target are left out on
+   * purpose: they would clear or blame services that are not involved.
+   */
+  structuralKinds?: EdgeKind[];
+  /** Edge kinds that lead from an endpoint to its reverse proxy; overrides the profile. */
+  proxyKinds?: EdgeKind[];
+}
+
+export interface Cause {
+  id: string;
+  /** Number of failed endpoints this node could explain. */
+  count: number;
+}
+
+export interface HealthAnalysis {
+  status: Record<string, NodeStatus>;
+  /** Failed endpoints. */
+  down: string[];
+  /** Per failed node: suspected dependencies, nearest (highest layer) first. */
+  suspects: Record<string, string[]>;
+  /** Most likely causes overall, best first. */
+  causes: Cause[];
+}
+
+
+/** Where to probe a node: `check`, falling back to `meta.Check` or `meta.URL`. */
+export function checkTarget(node: GraphNode): string | null {
+  return node.check ?? (String(node.meta?.Check ?? node.meta?.URL ?? '') || null);
+}
+
+function adjacency(topo: Topology, kinds: EdgeKind[]) {
+  const allowed = new Set(kinds);
+  const out = new Map<string, string[]>();
+  for (const e of topo.edges) {
+    if (!allowed.has(e.kind)) continue;
+    if (!out.has(e.from)) out.set(e.from, []);
+    out.get(e.from)!.push(e.to);
+  }
+  return out;
+}
+
+function closureIn(out: Map<string, string[]>, start: string): Set<string> {
+  const seen = new Set([start]);
+  const queue = [start];
+  while (queue.length) {
+    for (const next of out.get(queue.shift()!) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
+    }
+  }
+  return seen;
+}
+
+/** Everything `start` needs at runtime, including `start` itself. */
+export function dependencyClosure(topo: Topology, start: string, kinds: EdgeKind[] = profileStructuralKinds(resolveProfile(topo))): Set<string> {
+  return closureIn(adjacency(topo, kinds), start);
+}
+
+export function analyzeHealth(topo: Topology, results: Record<string, CheckResult | undefined>, opts: HealthOptions = {}): HealthAnalysis {
+  const profile = opts.profile ?? resolveProfile(topo);
+  const { structuralKinds = profileStructuralKinds(profile), proxyKinds = profileProxyKinds(profile) } = opts;
+  const out = adjacency(topo, structuralKinds);
+  const proxies = adjacency(topo, proxyKinds);
+  const closures = new Map<string, Set<string>>();
+  const closure = (id: string) => closures.get(id) ?? closures.set(id, closureIn(out, id)).get(id)!;
+
+  const cleared = new Set<string>();
+  const down: string[] = [];
+  for (const n of topo.nodes) {
+    const r = results[n.id];
+    if (r?.ok) {
+      for (const id of closure(n.id)) cleared.add(id);
+    } else if (r?.ok === false) {
+      down.push(n.id);
+      if (r.answered) for (const proxy of proxies.get(n.id) ?? []) for (const id of closure(proxy)) cleared.add(id);
+    }
+  }
+
+  const layerIdx = new Map(topo.layers.map((l, i) => [l.id, i]));
+  const byId = new Map(topo.nodes.map((n) => [n.id, n]));
+  // Layer index: 0 is the bottom layer (hardware), higher layers sit closer to the endpoints
+  const level = (id: string) => layerIdx.get(byId.get(id)?.layer ?? '') ?? 0;
+
+  const counts = new Map<string, number>();
+  const suspects: Record<string, string[]> = {};
+  for (const id of down) {
+    suspects[id] = [...closure(id)].filter((s) => s !== id && !cleared.has(s)).sort((a, b) => level(b) - level(a));
+    for (const s of suspects[id]) counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+
+  const failed = new Set(down);
+  const status: Record<string, NodeStatus> = {};
+  for (const n of topo.nodes) {
+    status[n.id] = failed.has(n.id) ? 'down' : counts.has(n.id) ? 'suspect' : cleared.has(n.id) ? 'ok' : 'unknown';
+  }
+
+  const causes = [...counts.entries()]
+    .map(([id, count]) => ({ id, count }))
+    .sort((a, b) => b.count - a.count || level(a.id) - level(b.id));
+
+  return { status, down, suspects, causes };
+}
