@@ -1,0 +1,25 @@
+{
+  "name": "stratoscope",
+  "version": "0.0.0",
+  "description": "Placeholder for stratoscope: layered 3D and 2D views of connected data (dependencies, impact, status). Work in progress.",
+  "license": "MIT",
+  "author": "surfacescratcher",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SurfaceScratcher/stratoscope.git"
+  },
+  "homepage": "https://github.com/SurfaceScratcher/stratoscope#readme",
+  "bugs": {
+    "url": "https://github.com/SurfaceScratcher/stratoscope/issues"
+  },
+  "keywords": [
+    "visualization",
+    "graph",
+    "dependencies",
+    "3d",
+    "layers"
+  ],
+  "files": [
+    "README.md"
+  ]
+}
