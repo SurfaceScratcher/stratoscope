@@ -1,0 +1,86 @@
+{
+  "name": "stratoscope",
+  "version": "0.0.0",
+  "description": "See how things hang together: connected data as stacked 3D layers and 2D diagrams for React, with dependency and impact highlighting. Domain profiles make it fit infrastructure, CI pipelines, tasks or organisations.",
+  "license": "MIT",
+  "author": "surfacescratcher",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SurfaceScratcher/stratoscope.git",
+    "directory": "packages/stratoscope"
+  },
+  "homepage": "https://github.com/SurfaceScratcher/stratoscope/tree/main/packages/stratoscope#readme",
+  "bugs": "https://github.com/SurfaceScratcher/stratoscope/issues",
+  "type": "module",
+  "sideEffects": false,
+  "keywords": [
+    "react",
+    "three",
+    "react-three-fiber",
+    "graph",
+    "dependencies",
+    "layers",
+    "visualization",
+    "3d",
+    "diagram",
+    "drawio",
+    "topology"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.js"
+    },
+    "./diagram": {
+      "types": "./dist/diagram.d.ts",
+      "import": "./dist/diagram.js"
+    },
+    "./topology.schema.json": "./topology.schema.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "topology.schema.json"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@react-three/drei": "^10.0.0",
+    "@react-three/fiber": "^9.0.0",
+    "react": "^19.0.0",
+    "three": ">=0.159.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-three/drei": {
+      "optional": true
+    },
+    "@react-three/fiber": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "three": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@react-three/drei": "^10.0.7",
+    "@react-three/fiber": "^9.1.2",
+    "@types/react": "^19.1.2",
+    "@types/three": "^0.187.0",
+    "react": "^19.1.0",
+    "three": "^0.187.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

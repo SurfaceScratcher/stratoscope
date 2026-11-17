@@ -1,0 +1,38 @@
+name: Release
+
+# Changesets opens a "Version packages" PR from pending changesets.
+# Merging that PR publishes the bumped packages to npm through trusted publishing:
+# npm accepts this workflow's OIDC identity, so no npm token is stored anywhere.
+on:
+  push:
+    branches: [main]
+
+concurrency: release
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      # Node 24 ships npm 11, which supports trusted publishing
+      - uses: changesets/action@v2
+        id: changesets
+        with:
+          version-script: npx changeset version
+          publish-script: npx changeset publish
+          commit-message: 'Version packages'
+          pr-title: 'Version packages'
+        env:
+          NPM_CONFIG_PROVENANCE: true
