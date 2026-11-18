@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 import { DEFAULT_THEME, toDrawio, toSvg, validateTopology, type DiagramView } from 'stratoscope/core';
 import { buildTopology, statusOf } from './build.js';
+import type { ConfigFile } from './config.js';
+import type { OutputRules } from './outputs.js';
 import { detectSource, SOURCES } from './sources/index.js';
 import type { CiSnapshot } from './types.js';
 
@@ -24,6 +26,15 @@ Options:
       --view <view>         columns | layers, for svg (default: columns)
       --dark                dark colours, for svg
       --from <file>         build from a snapshot written with --format snapshot instead of the API
+
+Results (images, packages, releases, deploy targets) come from the pipeline config:
+      --config <owner/name>=<file>
+                            config file of a repository, e.g. from a local checkout; repeat for
+                            more. Needed for Drone, whose API has none; Woodpecker serves its own
+      --skip-config         do not read the config from the Woodpecker API
+      --outputs <file>      JSON rules for what the config does not show:
+                            { "secrets": { "deploy-host": "prod" },
+                              "steps": { "owner/name": { "workflow/step": [{ "kind": "deploy", "target": "prod:/srv/app" }] } } }
   -o, --out <file>          write here (default: stdout)
   -h, --help                show this help
 `;
@@ -39,6 +50,9 @@ async function main() {
       view: { type: 'string', default: 'columns' },
       dark: { type: 'boolean' },
       from: { type: 'string' },
+      config: { type: 'string', multiple: true },
+      'skip-config': { type: 'boolean' },
+      outputs: { type: 'string' },
       out: { type: 'string', short: 'o' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -62,7 +76,17 @@ async function main() {
     if (!server || !token) fail(`set ${prefix}_SERVER and ${prefix}_TOKEN`);
     const pipelines = Number(values.pipelines);
     if (!Number.isInteger(pipelines) || pipelines < 1) fail('--pipelines must be a positive number');
+    const configFiles: Record<string, ConfigFile[]> = {};
+    for (const spec of values.config ?? []) {
+      const [repo, file] = [spec.slice(0, spec.indexOf('=')), spec.slice(spec.indexOf('=') + 1)];
+      if (!repo || !file || !spec.includes('=')) fail(`--config needs <owner/name>=<file>, got "${spec}"`);
+      (configFiles[repo] ??= []).push({ name: file.split('/').slice(-2).join('/'), data: fs.readFileSync(file, 'utf8') });
+    }
+    const outputRules: OutputRules | undefined = values.outputs ? JSON.parse(fs.readFileSync(values.outputs, 'utf8')) : undefined;
     snapshot = await source!.fetchSnapshot({
+      readConfig: !values['skip-config'],
+      configFiles,
+      outputRules,
       server: server!,
       token: token!,
       repos: values.repo,

@@ -35,6 +35,9 @@ npx stratoscope-ci --from snapshot.json -f json -o topology.json
 | `--view` | `columns` (one card per repository, default) or `layers`, for SVG |
 | `--dark` | dark colours, for SVG |
 | `--from <file>` | build from a snapshot instead of the API |
+| `--config <owner/name>=<file>` | pipeline config of a repository, e.g. from a local checkout; repeat for more (see [Results](#results)) |
+| `--skip-config` | do not read the config from the Woodpecker API |
+| `--outputs <file>` | rules for results the config does not show |
 
 The JSON topology carries the CI profile and each node's status, so `<Scene>`,
 `<Diagram>`, `toSvg` and `toDrawio` from [stratoscope](https://github.com/SurfaceScratcher/stratoscope/tree/main/packages/stratoscope) show it without further options.
@@ -58,9 +61,51 @@ names, branches, commit messages and authors, so treat it like the CI itself.
 | `after` | step → previous step, for workflows without `depends_on` (they run in order); with `depends_on`, steps without it start after the clone |
 | `uses` | step → service of the same workflow |
 
+| `builds` | result → step that builds it (image, package, release) |
+| `deploys` | deploy target → step that delivers to it |
+
 States become node status: `success` is ok; `failure`, `error` and `killed` are down; everything
 else (running, pending, skipped, blocked, …) is unknown. Each node keeps its state, duration,
 exit code and a link to the CI's web UI in `meta`.
+
+## Results
+
+Steps can show what they produce and where it goes: container **images**, **packages**,
+**releases** and **deploy targets**. They sit on a fourth layer, *Results*, above the pipelines,
+and only appear when some step has one. A result has the status of the latest run of the step
+that produces it, so the impact view of a failed step shows which images and targets are now
+outdated. An image that several pipelines or repositories build is one node.
+
+The API only reports state, so results come from the pipeline config:
+
+- **Woodpecker** serves the config of each run; the connector reads it unless `--skip-config`.
+- **Drone** has no such endpoint: pass the `.drone.yml`, e.g. from a local checkout, with
+  `--config acme/shop=../shop/.drone.yml`.
+
+| Found in | Becomes |
+| --- | --- |
+| Docker plugins (`plugins/docker`, `…/docker-buildx`, `kaniko`, `buildah`, …): `repo`, `registry`, `tags` | image, without tag; the tags in `meta` |
+| `scp`, `rsync`, `sftp` plugins: `host`, `target` | deploy target `host:path` |
+| `ssh` plugins: `host`, and a script that starts with `cd /path` | deploy target `host:path`, so copy and restart meet in one node |
+| `npm` and release plugins | package, release |
+| commands: `docker push`, `docker buildx build --push -t`, `npm publish`, `scp`/`rsync` to `host:/path` | image, package, deploy target |
+
+Other shell commands are not guessed at. A host that comes from a secret shows as
+`<secret-name>`; the rules can name it. Rules also add results for steps the config does not
+explain, or hide them with `[]`:
+
+```json
+{
+  "secrets": { "deploy-ssh-host": "prod" },
+  "steps": {
+    "acme/shop": { "deploy/upload": [{ "kind": "deploy", "target": "prod:/srv/shop" }], "notify": [] }
+  }
+}
+```
+
+Put host names in `secrets`, never the secret values themselves. In code:
+`attachOutputs(repo, pipeline, configFiles, rules)` fills a pipeline's steps, `detectOutputs(step)`
+reads one step's config, and `fetchSnapshot` takes `configFiles`, `outputRules` and `readConfig`.
 
 ## API
 

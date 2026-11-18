@@ -1,9 +1,13 @@
-export { buildTopology, statusOf, statusOfState, formatDuration, LAYERS } from './build.js';
+export { buildTopology, statusOf, statusOfState, formatDuration, LAYERS, OUTPUT_LAYER, outputId, outputLabel } from './build.js';
+export { parseConfig, workflowNameOf } from './config.js';
+export type { ConfigFile, StepConfig, WorkflowConfig } from './config.js';
+export { attachOutputs, detectOutputs, imageName, pluginName } from './outputs.js';
+export type { OutputRules } from './outputs.js';
 export type { BuildOptions } from './build.js';
 export { CI_PROFILE } from './profile.js';
 export { SOURCES, detectSource } from './sources/index.js';
-export { woodpecker, fromWoodpecker } from './sources/woodpecker.js';
-export type { WoodpeckerRepo, WoodpeckerPipeline, WoodpeckerWorkflow, WoodpeckerStep } from './sources/woodpecker.js';
+export { woodpecker, fromWoodpecker, decodeWoodpeckerConfig } from './sources/woodpecker.js';
+export type { WoodpeckerConfig, WoodpeckerRepo, WoodpeckerPipeline, WoodpeckerWorkflow, WoodpeckerStep } from './sources/woodpecker.js';
 export { drone, fromDrone } from './sources/drone.js';
 export type { DroneRepo, DroneBuild, DroneStage, DroneStep } from './sources/drone.js';
 export type * from './types.js';

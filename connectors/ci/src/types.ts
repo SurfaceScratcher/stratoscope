@@ -2,6 +2,8 @@
  * Source-neutral model of CI runs. Every source (Woodpecker, Drone, …) translates its API into
  * this shape; the topology is built from it alone.
  */
+import type { ConfigFile } from './config.js';
+import type { OutputRules } from './outputs.js';
 
 /** success, failure, error, killed, running, pending, skipped, canceled, blocked, declined, … as the CI reports it. */
 export type CiState = string;
@@ -20,6 +22,21 @@ export interface CiStep {
   finished?: number;
   /** Page of this step in the CI's web UI. */
   link?: string;
+  /** What the step produces or where it delivers to, from the pipeline config. */
+  outputs?: CiOutput[];
+}
+
+/**
+ * Result of a step: `image` (container image, without tag), `package` (npm, …), `release`,
+ * `deploy` (host or `host:path`), `artifact` (anything else).
+ */
+export interface CiOutput {
+  kind: 'image' | 'package' | 'release' | 'deploy' | 'artifact';
+  /** What it is or where it goes: `registry.example.com/team/app`, `prod:/srv/app`, `npm:packages/core`. */
+  target: string;
+  tags?: string[];
+  /** How it was found: the plugin image (`plugins/docker`), `commands`, or `rules` for manual ones. */
+  via?: string;
 }
 
 /** Woodpecker workflow, Drone stage: one pipeline definition (config file or YAML document). */
@@ -77,6 +94,15 @@ export interface FetchOptions {
   pipelines?: number;
   /** Only pipelines of this branch; `null` for any branch. Default: the repository's default branch. */
   branch?: string | null;
+  /**
+   * Read each pipeline's config to find what its steps produce. Woodpecker serves it through its
+   * API; Drone does not, so pass `configFiles` instead. Default true.
+   */
+  readConfig?: boolean;
+  /** Config files per repository (`owner/name`), e.g. read from local checkouts; used where the API has none. */
+  configFiles?: Record<string, ConfigFile[]>;
+  /** Outputs the config does not show; see `OutputRules`. */
+  outputRules?: OutputRules;
   /** Replaces the global `fetch`, for tests. */
   fetch?: typeof fetch;
 }

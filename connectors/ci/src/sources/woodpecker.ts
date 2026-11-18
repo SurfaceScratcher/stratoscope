@@ -1,4 +1,6 @@
 import type { CiPipeline, CiSnapshot, CiSource, CiStep, FetchOptions } from '../types.js';
+import type { ConfigFile } from '../config.js';
+import { attachOutputs } from '../outputs.js';
 import { apiGetter, pipelineCount, slugPath } from './http.js';
 
 /** The parts of the Woodpecker API (v3) this source reads. */
@@ -46,6 +48,17 @@ export interface WoodpeckerPipeline {
   started?: number;
   finished?: number;
   workflows?: WoodpeckerWorkflow[] | null;
+}
+
+/** A config file as `/repos/{id}/pipelines/{n}/config` returns it; `data` is base64. */
+export interface WoodpeckerConfig {
+  name: string;
+  data: string;
+}
+
+/** Decodes the base64 `data` of Woodpecker's config files. */
+export function decodeWoodpeckerConfig(configs: WoodpeckerConfig[]): ConfigFile[] {
+  return configs.map((c) => ({ name: c.name, data: new TextDecoder().decode(Uint8Array.from(atob(c.data), (ch) => ch.charCodeAt(0))) }));
 }
 
 /** Woodpecker's API → the neutral model. `server` is the base URL for links into the web UI. */
@@ -101,8 +114,15 @@ export const woodpecker: CiSource = {
       if (branch) query.set('branch', branch);
       const list = await get<WoodpeckerPipeline[]>(`/repos/${repo.id}/pipelines?${query}`);
       // The list leaves out workflows and steps; the single pipeline has them
-      const pipelines = await Promise.all(list.slice(0, count).map((p) => get<WoodpeckerPipeline>(`/repos/${repo.id}/pipelines/${p.number}`)));
-      snapshot.repos.push({ repo: { slug: repo.full_name, link: `${server}/repos/${repo.id}` }, pipelines: pipelines.map((p) => fromWoodpecker(server, repo, p)) });
+      const pipelines = await Promise.all(list.slice(0, count).map(async (p) => {
+        const pipeline = fromWoodpecker(server, repo, await get<WoodpeckerPipeline>(`/repos/${repo.id}/pipelines/${p.number}`));
+        // The config of this very run, not of the branch today; without it the graph just has no outputs
+        const files = opts.readConfig === false
+          ? opts.configFiles?.[repo.full_name]
+          : await get<WoodpeckerConfig[]>(`/repos/${repo.id}/pipelines/${p.number}/config`).then(decodeWoodpeckerConfig, () => opts.configFiles?.[repo.full_name]);
+        return attachOutputs(repo.full_name, pipeline, files, opts.outputRules);
+      }));
+      snapshot.repos.push({ repo: { slug: repo.full_name, link: `${server}/repos/${repo.id}` }, pipelines });
     }
     return snapshot;
   },
