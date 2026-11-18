@@ -1,5 +1,11 @@
 # stratoscope-ci
 
+## 0.2.0
+
+### Minor Changes
+
+- 0ab2323: Show what pipelines produce: container images, packages, releases and deploy targets, read from the pipeline config (Woodpecker's API, or `--config` for Drone), on a new Results layer linked to the steps that build or deliver them.
+
 ## 0.1.0
 
 ### Minor Changes
