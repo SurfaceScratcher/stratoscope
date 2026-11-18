@@ -1,6 +1,6 @@
 {
   "name": "stratoscope",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "See how things hang together: connected data as stacked 3D layers and 2D diagrams for React, with dependency and impact highlighting. Domain profiles make it fit infrastructure, CI pipelines, tasks or organisations.",
   "license": "MIT",
   "author": "surfacescratcher",

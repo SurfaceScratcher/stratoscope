@@ -1,5 +1,16 @@
 # stratoscope-ci
 
+## 0.3.0
+
+### Minor Changes
+
+- 2c5ee97: `combineWithInfra` and `linkToInfra` connect CI results with a stratoscope-infra topology: containers run the images a pipeline builds (`runs-image`), stacks live where it deploys to (`deployed-by`). Image names now ignore tags from variables (`app:${TAG:-latest}`) and Docker Hub's implicit prefixes.
+
+### Patch Changes
+
+- Updated dependencies [2c5ee97]
+  - stratoscope@0.2.0
+
 ## 0.2.0
 
 ### Minor Changes
