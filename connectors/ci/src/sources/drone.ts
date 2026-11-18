@@ -1,4 +1,5 @@
 import type { CiPipeline, CiSnapshot, CiSource, FetchOptions } from '../types.js';
+import { attachOutputs } from '../outputs.js';
 import { apiGetter, pipelineCount, slugPath } from './http.js';
 
 /** The parts of the Drone API (2.x) this source reads. */
@@ -122,7 +123,9 @@ export const drone: CiSource = {
       const latest = list.filter((b) => !branch || onBranch(b, branch)).slice(0, count);
       // The list leaves out stages and steps; the single build has them
       const builds = await Promise.all(latest.map((b) => get<DroneBuild>(`/repos/${slugPath(slug)}/builds/${b.number}`)));
-      snapshot.repos.push({ repo: { slug, link: `${server}/${slug}` }, pipelines: builds.map((b) => fromDrone(server, slug, b)) });
+      // Drone's API has no config; outputs come from `configFiles` (e.g. a local checkout) and the rules
+      const pipelines = builds.map((b) => attachOutputs(slug, fromDrone(server, slug, b), opts.configFiles?.[slug], opts.outputRules));
+      snapshot.repos.push({ repo: { slug, link: `${server}/${slug}` }, pipelines });
     }
     return snapshot;
   },

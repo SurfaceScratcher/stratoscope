@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION, type GraphEdge, type GraphNode, type NodeStatus, type Topology } from 'stratoscope/core';
 import { CI_PROFILE } from './profile.js';
-import type { CiPipeline, CiSnapshot, CiState, CiStep, CiWorkflow } from './types.js';
+import type { CiOutput, CiPipeline, CiSnapshot, CiState, CiStep, CiWorkflow } from './types.js';
 
 export interface BuildOptions {
   /** Topology name. Default "CI pipelines". */
@@ -13,6 +13,32 @@ export const LAYERS = [
   { id: 'workflow', label: 'Workflows' },
   { id: 'pipeline', label: 'Pipelines' },
 ];
+
+/** On top, only when some step has outputs: what the pipelines produce. */
+export const OUTPUT_LAYER = { id: 'output', label: 'Results' };
+
+/**
+ * Node id of a result. Images and deploy targets are shared: one node however many repositories
+ * build or deliver to them. Packages, releases and artifacts belong to their repository.
+ */
+export function outputId(o: CiOutput, repo: string): string {
+  return o.kind === 'image' || o.kind === 'deploy' ? `o:${o.kind}:${o.target}` : `o:${o.kind}:${repo}:${o.target}`;
+}
+
+/** Short label: the last two path parts of an image, `host:…/dir` of a target, the repository's name for the rest. */
+export function outputLabel(o: CiOutput, repo: string): string {
+  if (o.kind === 'image') return o.target.split('/').slice(-2).join('/');
+  if (o.kind === 'deploy') {
+    const [host, path] = o.target.split(/:(?=\/)/);
+    const parts = path?.split('/').filter(Boolean) ?? [];
+    if (!path) return host;
+    const dir = `${parts.length > 2 ? '…/' : '/'}${parts.slice(-2).join('/')}`;
+    // An unresolved secret (`<deploy-host>`) says less than the directory
+    return host.startsWith('<') ? dir : `${host}:${dir}`;
+  }
+  const name = repo.split('/').pop()!;
+  return o.target === o.kind || o.target === 'npm' || o.target === 'release' ? `${name} ${o.kind}` : `${name} ${o.target}`;
+}
 
 /**
  * CI state → node status. Failures are `down`; everything that is not finished yet or did not run
@@ -38,11 +64,13 @@ export function statusOf(topology: Topology): Record<string, NodeStatus> {
  * - steps of a workflow without any `dependsOn` run in order: `after` the previous one
  *   (with `dependsOn` in use, steps without it start right after the clone)
  * - step → service of the same workflow: `uses`
+ * - result → step that produces it: `builds`, or `deploys` for deploy targets
  * The topology carries CI_PROFILE and each node its `status`, so stratoscope shows it right away.
  */
 export function buildTopology(snapshot: CiSnapshot, opts: BuildOptions = {}): Topology {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
+  const results = new Results(nodes, edges);
 
   for (const { repo, pipelines } of snapshot.repos) {
     const column = repo.slug;
@@ -70,7 +98,7 @@ export function buildTopology(snapshot: CiSnapshot, opts: BuildOptions = {}): To
           const target = byName.get(dep);
           if (target) edges.push({ from: wid, to: workflowId(target), kind: 'needs' });
         }
-        addSteps(w, wid, column, groupOf(w), nodes, edges);
+        addSteps(w, wid, column, groupOf(w), nodes, edges, (s, id) => results.add(s, id, column, p.number));
       }
     }
   }
@@ -79,14 +107,43 @@ export function buildTopology(snapshot: CiSnapshot, opts: BuildOptions = {}): To
     schemaVersion: SCHEMA_VERSION,
     name: opts.name ?? 'CI pipelines',
     profile: CI_PROFILE,
-    layers: LAYERS,
+    layers: results.any ? [...LAYERS, OUTPUT_LAYER] : LAYERS,
     columns: snapshot.repos.filter((r) => r.pipelines.length).map((r) => r.repo.slug),
     nodes,
     edges,
   };
 }
 
-function addSteps(w: CiWorkflow, wid: string, column: string, group: string, nodes: GraphNode[], edges: GraphEdge[]) {
+/** Result nodes, shared across pipelines and repositories, with the status of their latest producer. */
+class Results {
+  private byId = new Map<string, { node: GraphNode; pipeline: number }>();
+  constructor(private nodes: GraphNode[], private edges: GraphEdge[]) {}
+  get any() { return this.byId.size > 0; }
+
+  add(step: CiStep, stepId: string, repo: string, pipeline: number) {
+    for (const o of step.outputs ?? []) {
+      const id = outputId(o, repo);
+      const status = statusOfState(step.state);
+      let entry = this.byId.get(id);
+      if (!entry) {
+        const node: GraphNode = { id, label: outputLabel(o, repo), type: o.kind, layer: OUTPUT_LAYER.id, column: repo, status, meta: { Target: o.target } };
+        entry = { node, pipeline };
+        this.byId.set(id, entry);
+        this.nodes.push(node);
+      } else if (status !== 'unknown' && (entry.node.status === 'unknown' || pipeline > entry.pipeline)) {
+        // A skipped run says nothing about the result; otherwise the latest run counts
+        entry.node.status = status;
+        entry.pipeline = pipeline;
+      }
+      const meta = entry.node.meta!;
+      if (o.tags?.length) meta.Tags = [...new Set([...String(meta.Tags ?? '').split(', ').filter(Boolean), ...o.tags])].join(', ');
+      if (o.via && !String(meta.Via ?? '').split(', ').includes(o.via)) meta.Via = meta.Via ? `${meta.Via}, ${o.via}` : o.via;
+      this.edges.push({ from: id, to: stepId, kind: o.kind === 'deploy' ? 'deploys' : 'builds' });
+    }
+  }
+}
+
+function addSteps(w: CiWorkflow, wid: string, column: string, group: string, nodes: GraphNode[], edges: GraphEdge[], onStep: (s: CiStep, id: string) => void) {
   // Position in the workflow: names are not always unique
   const index = new Map(w.steps.map((s, i) => [s, i + 1]));
   const stepId = (s: CiStep) => `s:${wid.slice(2)}/${index.get(s)}`;
@@ -101,6 +158,7 @@ function addSteps(w: CiWorkflow, wid: string, column: string, group: string, nod
     const role = s.kind === 'step' ? undefined : s.kind;
     nodes.push({ id, label: s.name, type: 'step', layer: 'step', column, group, ...(role && { role }), status: statusOfState(s.state), meta: runMeta(s) });
     edges.push({ from: wid, to: id, kind: 'runs' });
+    onStep(s, id);
   }
 
   work.forEach((s, i) => {
