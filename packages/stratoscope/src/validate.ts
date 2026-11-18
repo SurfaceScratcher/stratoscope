@@ -104,6 +104,10 @@ function checkProfile(p: unknown, layers: unknown[], known: Record<string, Domai
   for (const key of ['anchorLayer', 'looseColumn'] as const) if (p[key] !== undefined && !isString(p[key])) errors.push(`profile: "${key}" must be a string`);
   const layerIds = new Set(layers.map((l) => (isObject(l) ? l.id : undefined)));
   if (isString(p.anchorLayer) && !layerIds.has(p.anchorLayer)) warnings.push(`profile: anchorLayer "${p.anchorLayer}" is not a layer of this topology`);
+  if (p.anchorLayers !== undefined) {
+    if (!Array.isArray(p.anchorLayers) || !p.anchorLayers.every(isString)) errors.push('profile: "anchorLayers" must be a list of layer ids');
+    else for (const l of p.anchorLayers) if (!layerIds.has(l)) warnings.push(`profile: anchorLayers "${l}" is not a layer of this topology`);
+  }
   const shape = (v: unknown, at: string) => {
     if (v !== undefined && !NODE_SHAPES.includes(v as never)) errors.push(`${at}: unknown shape ${JSON.stringify(v)}, expected one of ${NODE_SHAPES.join(', ')}`);
   };

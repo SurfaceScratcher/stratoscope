@@ -156,6 +156,7 @@ const CI: DomainProfile = {
 | `roles` | shape overrides by `node.role` |
 | `edgeKinds` | per kind: `label` ([outgoing, incoming]), `line` (`solid`/`dashed`), `color`, `faint`, `propagates` (a failure travels along it, default true), `structural` and `proxy` (health analysis), `pull` (3D layout), `impliedByColumn` (columns view) |
 | `anchorLayer` | the layer laid out on a grid per column and group; the others follow. Default: the bottom layer |
+| `anchorLayers` | further anchor layers for columns without nodes on `anchorLayer`, tried in order; set by `combineTopologies` |
 | `anchorGroups` | 3D: the groups one behind the other (`rows`, default) or side by side (`columns`) |
 | `defaultShape` | shape of unknown types, default `box` |
 | `looseColumn` | name of the column for nodes without one, default `Other` |
@@ -170,6 +171,32 @@ name one (`"profile": "ci"`); `resolveProfile(topology, known, fallback)` looks 
 `known` and otherwise returns `fallback`, by default `DEFAULT_PROFILE`: plain boxes, every edge
 passes a failure on, the bottom layer anchors the layout. Domain packages wrap this with their own
 profiles; infra3d, for example, falls back to its infrastructure profile.
+
+## Combining domains
+
+`combineTopologies` puts several topologies into one, e.g. CI pipelines and the servers they deploy
+to, and adds edges between them:
+
+```ts
+import { combineTopologies } from 'stratoscope/core';
+
+const both = combineTopologies([servers, pipelines], {
+  edges: [{ from: 'c:prod:shop:api', to: 'o:image:registry.example.com/shop', kind: 'runs-image' }],
+  edgeKinds: { 'runs-image': { label: ['runs image', 'runs in'], line: 'dashed', propagates: false } },
+  layers: ['step', 'workflow', 'pipeline', 'output', 'physical', 'container', 'endpoint'],
+});
+```
+
+- **Profile:** the union of the parts' profiles. Node types, roles and edge kinds of earlier parts
+  win when names clash.
+- **Anchors:** each column keeps the anchor of its own domain. The first part's anchor becomes
+  `anchorLayer`, the others' become `anchorLayers`.
+- **Contents:** layers, columns, nodes and edges are concatenated. A node id that several parts
+  contain is kept once, from the first part. Edges with a missing end are dropped.
+- **Links:** mark them `propagates: false` when a failure on one side does not break the other.
+  A failed build leaves a running container outdated, not down.
+- **Profiles by name:** for parts that only name their profile, pass `profiles`, or pass
+  `fallback` for parts without one.
 
 ## Health analysis
 
@@ -194,7 +221,7 @@ const { status, down, suspects, causes } = analyzeHealth(topology, { 'e:shop': {
 `computeLayout`, `fitCamera` / `sceneBox`, `traverse`, `computeHighlight`, `neighbors`,
 `dependencyClosure`, `DEFAULT_THEME`, `resolveTheme`, `DEFAULT_PROFILE`, `resolveProfile`,
 `anchorLayerOf`, `reportedStatus`, `profileColors`, `shapeOf`, `typeLabel`, `edgeLabel`,
-`structuralKinds`, `proxyKinds`, `NODE_SHAPES`, `computeDiagramLayout`, `toDrawio`, `toSvg`,
+`structuralKinds`, `proxyKinds`, `NODE_SHAPES`, `columnAnchors`, `combineTopologies`, `computeDiagramLayout`, `toDrawio`, `toSvg`,
 `DRAWIO_THEME`. Everything except the two components is available from `stratoscope/core`
 without React or three.js; `stratoscope/diagram` adds `Diagram` and needs only React.
 

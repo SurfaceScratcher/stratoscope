@@ -67,6 +67,12 @@ export interface DomainProfile {
    */
   anchorLayer?: string;
   /**
+   * Further anchor layers, for columns without nodes on `anchorLayer`: each column is anchored on
+   * the first of them it has nodes on. For combined topologies, where the columns of each domain
+   * have their own anchor (steps of a repository, containers of a host).
+   */
+  anchorLayers?: string[];
+  /**
    * 3D: the groups of the anchor layer one behind the other (`rows`, default) or side by side
    * (`columns`). Use `columns` when every group has its own node in the layer above (a workflow
    * over its steps), so those nodes line up across instead of hiding behind each other.
@@ -122,6 +128,27 @@ export function resolveProfile(topo: Pick<Topology, 'profile'>, known: Record<st
 /** The anchor layer in effect: the profile's, else the bottom layer. */
 export function anchorLayerOf(p: DomainProfile, topo: Pick<Topology, 'layers'>): string {
   return p.anchorLayer ?? topo.layers[0]?.id ?? '';
+}
+
+/**
+ * Anchor layer per column (`''` for nodes without a column): `anchorLayer`, or for a column without
+ * nodes on it the first of `anchorLayers` it has nodes on. `override` applies to every column.
+ */
+export function columnAnchors(p: DomainProfile, topo: Pick<Topology, 'layers' | 'nodes'>, override?: string): (column: string | undefined) => string {
+  const main = override ?? anchorLayerOf(p, topo);
+  const more = override ? [] : p.anchorLayers ?? [];
+  if (!more.length) return () => main;
+  const present = new Set(topo.nodes.map((n) => `${n.column ?? ''}\0${n.layer}`));
+  const cache = new Map<string, string>();
+  return (column) => {
+    const col = column ?? '';
+    let layer = cache.get(col);
+    if (!layer) {
+      layer = [main, ...more].find((l) => present.has(`${col}\0${l}`)) ?? main;
+      cache.set(col, layer);
+    }
+    return layer;
+  };
 }
 
 /** Colours the profile defines for its node types and edge kinds. */

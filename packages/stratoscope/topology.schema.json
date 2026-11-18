@@ -197,6 +197,11 @@
           "type": "string",
           "minLength": 1
         },
+        "anchorLayers": {
+          "description": "Further anchor layers, for columns without nodes on anchorLayer: each column is anchored on the first of them it has nodes on (combined topologies).",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
         "anchorGroups": {
           "description": "3D: groups of the anchor layer one behind the other (rows, default) or side by side (columns).",
           "enum": [

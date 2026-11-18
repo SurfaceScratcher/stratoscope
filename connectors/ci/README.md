@@ -107,6 +107,30 @@ Put host names in `secrets`, never the secret values themselves. In code:
 `attachOutputs(repo, pipeline, configFiles, rules)` fills a pipeline's steps, `detectOutputs(step)`
 reads one step's config, and `fetchSnapshot` takes `configFiles`, `outputRules` and `readConfig`.
 
+## With the infrastructure
+
+The images a pipeline builds are the ones containers run, and its deploy targets are the
+directories where stacks live. `combineWithInfra` puts a CI topology and a
+[stratoscope-infra](https://github.com/SurfaceScratcher/stratoscope-infra) topology into one and
+links them:
+
+```ts
+import { combineWithInfra } from 'stratoscope-ci';
+import { INFRA_PROFILE } from 'stratoscope-infra/core';
+
+const both = combineWithInfra(ciTopology, infraTopology, { fallback: INFRA_PROFILE });
+```
+
+| Edge | From → to | Matched by |
+| --- | --- | --- |
+| `runs-image` | container → image | `meta.Image` without tag, so `app:${TAG:-latest}` matches `app` |
+| `deployed-by` | container → deploy target | the target path ends in the container's stack (`group`) and names its host (`column`), as host (`prod:/srv/shop`) or directory (`…/hosts/prod/shop`) |
+
+The CI layers sit at the bottom, with the results right below the hosts. Each column keeps its own
+anchor: repositories are anchored on their steps, hosts on their containers. Both link kinds pass
+no failure on. Click a failed step to see which running containers are now outdated; their
+endpoints are not marked as affected. `linkToInfra(ci, infra)` returns just the edges.
+
 ## API
 
 Each source translates its API into one neutral model (`CiSnapshot`); the graph is built from

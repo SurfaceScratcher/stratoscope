@@ -30,12 +30,15 @@ function texts(v: unknown, secrets: Record<string, string>): string[] {
   return String(v).split(',').map((s) => s.trim()).filter(Boolean);
 }
 
-/** `registry.example.com/team/app:1.2` → `registry.example.com/team/app`; keeps a registry port. */
+/**
+ * `registry.example.com/team/app:1.2` → `registry.example.com/team/app`; keeps a registry port and
+ * drops a tag from a variable (`app:${TAG:-latest}`) as well as Docker Hub's implicit prefixes.
+ */
 export function imageName(ref: string): string {
-  const at = ref.replace(/@sha256:.*$/, '');
+  const at = ref.trim().replace(/@sha256:.*$/, '');
   const slash = at.lastIndexOf('/');
-  const colon = at.lastIndexOf(':');
-  return colon > slash ? at.slice(0, colon) : at;
+  const colon = at.indexOf(':', slash + 1);
+  return (colon >= 0 ? at.slice(0, colon) : at).replace(/^(docker\.io|index\.docker\.io)\//, '').replace(/^library\//, '');
 }
 
 const DOCKER = /(^|\/)(drone-|wp-|plugin-)?(docker|docker-buildx|buildx|kaniko|buildah|podman|ecr|gcr|docker-registry)$/;

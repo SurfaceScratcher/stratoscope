@@ -1,4 +1,4 @@
-import { anchorLayerOf, edgeKindSpec, resolveProfile, type DomainProfile } from './profile.js';
+import { columnAnchors, edgeKindSpec, resolveProfile, type DomainProfile } from './profile.js';
 import type { GraphNode, Topology } from './types.js';
 
 export type Vec3 = [number, number, number];
@@ -6,7 +6,7 @@ export type Vec3 = [number, number, number];
 export interface LayoutOptions {
   /** Anchor layer and edge pulls come from here. Default: the topology's (`topology.profile`), else DEFAULT_PROFILE. */
   profile?: DomainProfile;
-  /** Layer whose nodes are placed on a grid; all other layers follow from it. Default: the profile's. */
+  /** Layer whose nodes are placed on a grid; all other layers follow from it. Default: the profile's, per column with `anchorLayers`. */
   anchorLayer?: string;
   /** Groups of the anchor layer one behind the other (`rows`) or side by side (`columns`). Default: the profile's, else `rows`. */
   anchorGroups?: 'rows' | 'columns';
@@ -22,13 +22,14 @@ export interface Layout {
   /** How the groups of the anchor layer were laid out. */
   anchorGroups: 'rows' | 'columns';
   layerY: Map<string, number>;
-  columns: { id: string; x: number; z: number; width: number; depth: number }[];
+  /** `layer`: the column's anchor layer, where its outline is drawn. */
+  columns: { id: string; x: number; z: number; width: number; depth: number; layer: string }[];
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 }
 
 export function computeLayout(topo: Topology, opts: LayoutOptions = {}): Layout {
   const profile = opts.profile ?? resolveProfile(topo);
-  const { anchorLayer = anchorLayerOf(profile, topo), anchorGroups = profile.anchorGroups ?? 'rows', layerGap = 10, itemGap = 3.2, groupGap = 3.5, columnGap = 9, minDistance = 2.6 } = opts;
+  const { anchorLayer, anchorGroups = profile.anchorGroups ?? 'rows', layerGap = 10, itemGap = 3.2, groupGap = 3.5, columnGap = 9, minDistance = 2.6 } = opts;
 
   const layerY = new Map(topo.layers.map((l, i) => [l.id, i * layerGap]));
   const positions = new Map<string, Vec3>();
@@ -36,7 +37,9 @@ export function computeLayout(topo: Topology, opts: LayoutOptions = {}): Layout 
 
   // 1. Anchor layer: one grid per column, one row per group, or one column per group with `columns`
   //    (then the nodes above the groups line up across instead of in depth).
-  const anchors = topo.nodes.filter((n) => n.layer === anchorLayer);
+  const anchorOf = columnAnchors(profile, topo, anchorLayer);
+  const isAnchor = (n: GraphNode) => n.layer === anchorOf(n.column);
+  const anchors = topo.nodes.filter(isAnchor);
   // Side by side, the labels of the nodes above the groups need more room than a row does
   const spread = anchorGroups === 'columns' ? Math.max(groupGap, itemGap) * 1.6 : groupGap;
   const colGroups = columnIds.map((col) => {
@@ -65,7 +68,7 @@ export function computeLayout(topo: Topology, opts: LayoutOptions = {}): Layout 
         positions.set(n.id, [x, layerY.get(n.layer) ?? 0, z]);
       });
     });
-    columns.push({ id: c.col, x: cx, z: 0, width: c.width, depth: c.depth });
+    columns.push({ id: c.col, x: cx, z: 0, width: c.width, depth: c.depth, layer: anchorOf(c.col) });
     cursor += c.width + columnGap;
   }
   const columnX = new Map(columns.map((c) => [c.id, c.x]));
@@ -81,14 +84,12 @@ export function computeLayout(topo: Topology, opts: LayoutOptions = {}): Layout 
       adj.get(a)!.push({ id: b, w });
     }
   }
-  const anchorIdx = topo.layers.findIndex((l) => l.id === anchorLayer);
+  const layerIdx = (id: string) => topo.layers.findIndex((l) => l.id === id);
+  // Distance to the anchor of the node's own column
+  const distance = (n: GraphNode) => Math.abs(layerIdx(n.layer) - layerIdx(anchorOf(n.column)));
   const rest = topo.nodes
     .filter((n) => !positions.has(n.id))
-    .sort((a, b) => {
-      const da = Math.abs(topo.layers.findIndex((l) => l.id === a.layer) - anchorIdx);
-      const db = Math.abs(topo.layers.findIndex((l) => l.id === b.layer) - anchorIdx);
-      return da - db;
-    });
+    .sort((a, b) => distance(a) - distance(b));
 
   const place = (n: GraphNode, x: number, z: number) => {
     const [ox, oz] = n.offset ?? [0, 0];
@@ -117,7 +118,7 @@ export function computeLayout(topo: Topology, opts: LayoutOptions = {}): Layout 
   // 3. Push apart overlapping nodes within a layer (the anchor layer stays fixed).
   const byLayer = new Map<string, GraphNode[]>();
   for (const n of topo.nodes) {
-    if (n.layer === anchorLayer) continue;
+    if (isAnchor(n)) continue;
     if (!byLayer.has(n.layer)) byLayer.set(n.layer, []);
     byLayer.get(n.layer)!.push(n);
   }
