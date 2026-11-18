@@ -1,5 +1,5 @@
 import type { LayoutOptions } from './layout.js';
-import { anchorLayerOf, resolveProfile } from './profile.js';
+import { anchorLayerOf, columnAnchors, resolveProfile } from './profile.js';
 import type { GraphLayer, GraphNode, Topology } from './types.js';
 
 /**
@@ -80,7 +80,9 @@ export function computeDiagramLayout(topo: Topology, opts: DiagramLayoutOptions 
 }
 
 function layersView(topo: Topology, layers: GraphLayer[], nodes: GraphNode[], opts: DiagramLayoutOptions): DiagramLayout {
-  const anchorLayer = opts.layout?.anchorLayer ?? anchorLayerOf(opts.layout?.profile ?? resolveProfile(topo), topo);
+  const profile = opts.layout?.profile ?? resolveProfile(topo);
+  const anchorLayer = opts.layout?.anchorLayer ?? anchorLayerOf(profile, topo);
+  const anchorOf = columnAnchors(profile, topo, opts.layout?.anchorLayer);
   const perRowMax = Math.max(1, opts.perRow ?? 5);
   const COLUMN_CAPTION = 24, BAND_CAPTION = 22, BAND_PAD = 6, BAND_GAP = 8, COLUMN_GAP = 14, INSET = 10;
 
@@ -127,7 +129,7 @@ function layersView(topo: Topology, layers: GraphLayer[], nodes: GraphNode[], op
   for (const { l, i } of order) {
     geo.forEach((g, gi) => {
       let list = g.nodes.filter((n) => n.layer === l.id);
-      if (l.id === anchorLayer) {
+      if (l.id === anchorOf(g.id)) {
         const groups = [...new Set(list.map((n) => n.group ?? ''))];
         list = [...list].sort((a, b) => groups.indexOf(a.group ?? '') - groups.indexOf(b.group ?? ''));
       } else {
@@ -162,7 +164,7 @@ function columnsOf(topo: Topology, nodes: GraphNode[], opts: DiagramLayoutOption
 }
 
 function columnsView(topo: Topology, layers: GraphLayer[], nodes: GraphNode[], opts: DiagramLayoutOptions): DiagramLayout {
-  const anchorLayer = opts.layout?.anchorLayer ?? anchorLayerOf(opts.layout?.profile ?? resolveProfile(topo), topo);
+  const anchorOf = columnAnchors(opts.layout?.profile ?? resolveProfile(topo), topo, opts.layout?.anchorLayer);
   const perRow = Math.max(1, opts.perRow ?? 4);
   const CARD_TITLE = 30, CARD_PAD = 14, CARD_GAP = 20, SECTION_CAPTION = 18, SECTION_GAP = 8, GROUP_CAPTION = 18, GROUP_GAP = 8;
 
@@ -179,6 +181,7 @@ function columnsView(topo: Topology, layers: GraphLayer[], nodes: GraphNode[], o
     const cell = Math.max(...card.nodes.map(cellWidth));
     const x0 = x + CARD_PAD;
     // Split every layer into blocks; only the anchor layer has named groups
+    const anchorLayer = anchorOf(card.id);
     const blocks = layers.map((layer) => {
       const list = card.nodes.filter((n) => n.layer === layer.id);
       const byGroup = new Map<string, GraphNode[]>();

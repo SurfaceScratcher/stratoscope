@@ -5,7 +5,7 @@ import { computeLayout, type LayoutOptions, type Vec3 } from './layout.js';
 import { fitCamera, sceneBox, type CameraAngle, type CameraFit } from './camera.js';
 import { computeHighlight, type Highlight } from './graph.js';
 import type { Mesh } from 'three';
-import { anchorLayerOf, edgeKindSpec, nodeTypeSpec, reportedStatus, resolveProfile, shapeOf, type DomainProfile, type NodeShape } from './profile.js';
+import { edgeKindSpec, nodeTypeSpec, reportedStatus, resolveProfile, shapeOf, type DomainProfile, type NodeShape } from './profile.js';
 import { resolveTheme, type Theme } from './theme.js';
 import type { HighlightMode, GraphEdge, GraphNode, NodeStatus, Topology } from './types.js';
 
@@ -62,7 +62,6 @@ export function Scene({
   const status = statusProp ?? reported;
   const layout = useMemo(() => computeLayout(topology, { profile, ...layoutOpts }), [topology, profile, layoutOpts]);
   const highlight = useMemo(() => computeHighlight(topology, selectedId, mode, profile), [topology, selectedId, mode, profile]);
-  const anchorLayer = layoutOpts?.anchorLayer ?? anchorLayerOf(profile, topology);
   const hidden = useMemo(() => new Set(hiddenLayers), [hiddenLayers]);
   const nodeById = useMemo(() => new Map(topology.nodes.map((n) => [n.id, n])), [topology]);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -95,7 +94,7 @@ export function Scene({
 
           {topology.layers.map((l) =>
             hidden.has(l.id) ? null : (
-              <LayerPlane key={l.id} theme={theme} label={l.label} y={layout.layerY.get(l.id)!} bounds={bounds} columns={l.id === anchorLayer ? layout.columns : []} columnLabelsInFront={layout.anchorGroups === 'columns'} />
+              <LayerPlane key={l.id} theme={theme} label={l.label} y={layout.layerY.get(l.id)!} bounds={bounds} columns={layout.columns.filter((c) => c.layer === l.id)} columnLabelsInFront={layout.anchorGroups === 'columns'} />
             ),
           )}
 
