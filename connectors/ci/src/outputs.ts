@@ -136,3 +136,11 @@ export function attachOutputs(repo: string, pipeline: CiPipeline, files: ConfigF
   }
   return pipeline;
 }
+
+/** Everything the config files (and the rules) say the repository's steps can produce, whether they ran or not. */
+export function configOutputs(repo: string, files: ConfigFile[] = [], rules: OutputRules = {}): CiOutput[] {
+  const overrides = rules.steps?.[repo] ?? {};
+  const detected = files.flatMap((f) => parseConfig(f)).flatMap((w) => w.steps.flatMap((s) => overrides[`${w.name}/${s.name}`] ?? overrides[s.name] ?? detectOutputs(s, rules)));
+  // Rules may name steps the config does not show the same way
+  return [...detected, ...Object.values(overrides).flat()];
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { validateTopology } from 'stratoscope/core';
-import { attachOutputs, buildTopology, outputLabel, detectOutputs, fromDrone, imageName, parseConfig, woodpecker, workflowNameOf, type CiSnapshot, type DroneBuild } from '../src/index.js';
+import { attachOutputs, buildTopology, outputLabel, detectOutputs, fromDrone, imageName, parseConfig, woodpecker, workflowNameOf, type CiSnapshot, type DroneBuild, type FetchOptions, type CiPipeline } from '../src/index.js';
+import { latestProducers } from '../src/sources/producers.js';
 import droneApi from './fixtures/drone.json' with { type: 'json' };
 import woodpeckerApi from './fixtures/woodpecker.json' with { type: 'json' };
 import { woodpeckerSnapshot } from './fixtures.js';
@@ -199,5 +200,72 @@ describe('woodpecker config', () => {
     const skipped = calls.length;
     await woodpecker.fetchSnapshot({ server: 'https://ci.example.com', token: 't', repos: ['acme/shop'], readConfig: false, fetch });
     expect(calls.slice(skipped).some((c) => c.endsWith('/config'))).toBe(false);
+  });
+});
+
+describe('results from the latest producing run', () => {
+  const shop = woodpeckerApi.repos[0];
+  const config = [{ name: '.woodpecker/deploy.yaml', data: Buffer.from(WOODPECKER_DEPLOY).toString('base64') }];
+  // #42 (fetched) skipped the release; #41 is a feature branch that released, #40 failed it on main
+  const run = (number: number, branch: string, release: string) => {
+    const p = structuredClone(shop.pipelines[0]);
+    Object.assign(p, { number, branch });
+    for (const w of p.workflows) if (w.name === 'deploy') for (const s of w.children ?? []) if (s.name === 'release') s.state = release;
+    return p;
+  };
+  const runs = [run(42, 'main', 'skipped'), run(41, 'feature', 'success'), run(40, 'main', 'failure'), run(39, 'main', 'success')];
+  const fetchFor = (calls: string[]) => (async (url: string) => {
+    const path = url.slice('https://ci.example.com/api'.length);
+    calls.push(path);
+    const routes: Record<string, unknown> = { '/repos/lookup/acme/shop': shop.repo, '/repos/3/pipelines?page=1&perPage=1&branch=main': [{ number: 42 }], '/repos/3/pipelines?page=1&perPage=50': runs.map(({ number, branch, event }) => ({ number, branch, event })) };
+    for (const p of runs) Object.assign(routes, { [`/repos/3/pipelines/${p.number}`]: p, [`/repos/3/pipelines/${p.number}/config`]: config });
+    return path in routes ? new Response(JSON.stringify(routes[path])) : new Response('', { status: 404 });
+  }) as typeof globalThis.fetch;
+  const fetchWith = async (opts: Partial<FetchOptions>, calls: string[] = []) =>
+    woodpecker.fetchSnapshot({ server: 'https://ci.example.com', token: 't', repos: ['acme/shop'], fetch: fetchFor(calls), ...opts });
+  const image = (s: CiSnapshot) => buildTopology(s).nodes.find((n) => n.type === 'image')!;
+
+  it('by default only knows the fetched window, where the release was skipped', async () => {
+    const s = await fetchWith({});
+    expect(s.repos[0].producers).toBeUndefined();
+    expect(image(s)).toMatchObject({ status: 'unknown', meta: { Pipeline: '#42' } });
+  });
+
+  it('with latest, takes the newest run whose producing step finished, cut down to that step', async () => {
+    const calls: string[] = [];
+    const s = await fetchWith({ results: 'latest' }, calls);
+    const [producer] = s.repos[0].producers!;
+    expect(producer.number).toBe(41);
+    expect(producer.workflows.map((w) => [w.name, w.steps.map((st) => st.name)])).toEqual([['deploy', ['release']]]);
+    const topo = buildTopology(s);
+    const node = image(s);
+    expect(node).toMatchObject({ status: 'ok', meta: { Pipeline: '#41', Link: 'https://ci.example.com/repos/3/pipeline/41/' + shop.pipelines[0].workflows[2].children[1].pid } });
+    // #41 is not in the graph: the result keeps its edge to the fetched step only
+    expect(topo.edges.filter((e) => e.from === node.id).map((e) => e.to)).toEqual(['s:acme/shop#42/deploy/2']);
+    expect(validateTopology(topo)).toMatchObject({ errors: [], warnings: [] });
+    // Stops as soon as every result is found
+    expect(calls.some((c) => c.startsWith('/repos/3/pipelines/40'))).toBe(false);
+  });
+
+  it('filters runs by branch or event and stops after resultsDepth runs', async () => {
+    expect(image(await fetchWith({ results: 'latest', resultsBranches: ['default'] }))).toMatchObject({ status: 'down', meta: { Pipeline: '#40' } });
+    expect(image(await fetchWith({ results: 'latest', resultsBranches: ['default'], resultsEvents: ['push'] }))).toMatchObject({ meta: { Pipeline: '#41' } });
+    const shallow = await fetchWith({ results: 'latest', resultsBranches: ['main'], resultsDepth: 0 });
+    expect(shallow.repos[0].producers).toBeUndefined();
+  });
+});
+
+describe('latestProducers', () => {
+  it('pages back until it finds a producer 60 runs ago', async () => {
+    const out = { kind: 'image' as const, target: 'reg/app' };
+    const pipe = (number: number, state: string): CiPipeline => ({ number, state, workflows: [{ name: 'img', state, steps: [{ name: 'push', state, kind: 'step', outputs: [out] }] }] });
+    const fetched = [pipe(100, 'skipped')];
+    const pages: number[] = [];
+    const found = await latestProducers(fetched, [out], {
+      list: async (page, perPage) => { pages.push(page); return Array.from({ length: perPage }, (_, i) => ({ number: 100 - (page - 1) * perPage - i })).filter((r) => r.number > 0); },
+      load: async (r) => pipe(r.number, r.number === 40 ? 'success' : 'skipped'),
+    }, {} as FetchOptions);
+    expect(found.map((p) => p.number)).toEqual([40]);
+    expect(pages).toEqual([1, 2]);
   });
 });

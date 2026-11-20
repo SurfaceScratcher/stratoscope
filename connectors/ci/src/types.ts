@@ -79,7 +79,15 @@ export interface CiSnapshot {
   /** `woodpecker`, `drone`, … */
   source: string;
   server?: string;
-  repos: { repo: CiRepo; pipelines: CiPipeline[] }[];
+  repos: {
+    repo: CiRepo;
+    pipelines: CiPipeline[];
+    /**
+     * Older runs that only fill the result layer (`results: 'latest'`): the latest finished run of
+     * each result the fetched pipelines did not settle, cut down to the steps that produce it.
+     */
+    producers?: CiPipeline[];
+  }[];
 }
 
 /** Connection to a CI server. */
@@ -101,6 +109,17 @@ export interface FetchOptions {
   readConfig?: boolean;
   /** Config files per repository (`owner/name`), e.g. read from local checkouts; used where the API has none. */
   configFiles?: Record<string, ConfigFile[]>;
+  /**
+   * `window` (default): results come from the fetched pipelines only. `latest`: each result the
+   * config can produce shows the latest run whose producing step finished, however far back.
+   */
+  results?: 'window' | 'latest';
+  /** With `latest`: only runs on these branches count (`default` is the repository's default branch). Default: any. */
+  resultsBranches?: string[];
+  /** With `latest`: runs of these events count too (`tag`, `deployment`, `cron`, …); with branches, either is enough. */
+  resultsEvents?: string[];
+  /** With `latest`: at most this many older runs are loaded per repository. Default 100. */
+  resultsDepth?: number;
   /** Outputs the config does not show; see `OutputRules`. */
   outputRules?: OutputRules;
   /** Replaces the global `fetch`, for tests. */

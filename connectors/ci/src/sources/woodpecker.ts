@@ -1,6 +1,7 @@
 import type { CiPipeline, CiSnapshot, CiSource, CiStep, FetchOptions } from '../types.js';
 import type { ConfigFile } from '../config.js';
-import { attachOutputs } from '../outputs.js';
+import { attachOutputs, configOutputs } from '../outputs.js';
+import { latestProducers } from './producers.js';
 import { apiGetter, pipelineCount, slugPath } from './http.js';
 
 /** The parts of the Woodpecker API (v3) this source reads. */
@@ -114,15 +115,23 @@ export const woodpecker: CiSource = {
       if (branch) query.set('branch', branch);
       const list = await get<WoodpeckerPipeline[]>(`/repos/${repo.id}/pipelines?${query}`);
       // The list leaves out workflows and steps; the single pipeline has them
-      const pipelines = await Promise.all(list.slice(0, count).map(async (p) => {
-        const pipeline = fromWoodpecker(server, repo, await get<WoodpeckerPipeline>(`/repos/${repo.id}/pipelines/${p.number}`));
+      const load = async (number: number) => {
+        const pipeline = fromWoodpecker(server, repo, await get<WoodpeckerPipeline>(`/repos/${repo.id}/pipelines/${number}`));
         // The config of this very run, not of the branch today; without it the graph just has no outputs
         const files = opts.readConfig === false
           ? opts.configFiles?.[repo.full_name]
-          : await get<WoodpeckerConfig[]>(`/repos/${repo.id}/pipelines/${p.number}/config`).then(decodeWoodpeckerConfig, () => opts.configFiles?.[repo.full_name]);
-        return attachOutputs(repo.full_name, pipeline, files, opts.outputRules);
-      }));
-      snapshot.repos.push({ repo: { slug: repo.full_name, link: `${server}/repos/${repo.id}` }, pipelines });
+          : await get<WoodpeckerConfig[]>(`/repos/${repo.id}/pipelines/${number}/config`).then(decodeWoodpeckerConfig, () => opts.configFiles?.[repo.full_name]);
+        return { pipeline: attachOutputs(repo.full_name, pipeline, files, opts.outputRules), files: files ?? [] };
+      };
+      const fetched = await Promise.all(list.slice(0, count).map((p) => load(p.number)));
+      const pipelines = fetched.map((f) => f.pipeline);
+      const producers = opts.results === 'latest'
+        ? await latestProducers(pipelines, fetched.flatMap((f) => configOutputs(repo.full_name, f.files, opts.outputRules)), {
+          list: (page, perPage) => get<WoodpeckerPipeline[]>(`/repos/${repo.id}/pipelines?${new URLSearchParams({ page: String(page), perPage: String(perPage) })}`),
+          load: async (run) => (await load(run.number)).pipeline,
+        }, opts, repo.default_branch)
+        : [];
+      snapshot.repos.push({ repo: { slug: repo.full_name, link: `${server}/repos/${repo.id}` }, pipelines, ...(producers.length && { producers }) });
     }
     return snapshot;
   },
