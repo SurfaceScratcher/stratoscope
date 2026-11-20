@@ -1,5 +1,12 @@
 # stratoscope-ci
 
+## 0.4.0
+
+### Minor Changes
+
+- 1f6f1b2: `registryAliases` for `linkToInfra` and `combineWithInfra`: images pushed to one registry name (`localhost:5000`) and pulled under another (`registry.example.internal:5000`) are linked to their containers (#9).
+- b469b5e: `--results latest` (`results: 'latest'`) fills the result layer from the latest run whose producing step finished, however far back, not only from the fetched pipelines; `--results-branch`, `--results-event` and `--results-depth` limit the search. Results carry `Pipeline` and `Link` of the run their state comes from (#10).
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "stratoscope-ci",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "CI pipelines, workflows and steps from Woodpecker or Drone as a stratoscope topology, with their dependencies and state.",
   "license": "MIT",
   "repository": {
