@@ -5,7 +5,8 @@ export { attachOutputs, detectOutputs, imageName, pluginName } from './outputs.j
 export type { OutputRules } from './outputs.js';
 export type { BuildOptions } from './build.js';
 export { CI_PROFILE } from './profile.js';
-export { linkToInfra, combineWithInfra, CI_INFRA_EDGE_KINDS } from './infra.js';
+export { linkToInfra, combineWithInfra, canonicalImage, CI_INFRA_EDGE_KINDS } from './infra.js';
+export type { LinkOptions } from './infra.js';
 export { SOURCES, detectSource } from './sources/index.js';
 export { woodpecker, fromWoodpecker, decodeWoodpeckerConfig } from './sources/woodpecker.js';
 export type { WoodpeckerConfig, WoodpeckerRepo, WoodpeckerPipeline, WoodpeckerWorkflow, WoodpeckerStep } from './sources/woodpecker.js';

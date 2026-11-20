@@ -131,6 +131,18 @@ anchor: repositories are anchored on their steps, hosts on their containers. Bot
 no failure on. Click a failed step to see which running containers are now outdated; their
 endpoints are not marked as affected. `linkToInfra(ci, infra)` returns just the edges.
 
+If the CI pushes to a registry under another name than the one the hosts pull from (`localhost:5000`
+on the build host, `registry.example.internal:5000` on the network), say they are the same:
+
+```ts
+combineWithInfra(ciTopology, infraTopology, {
+  fallback: INFRA_PROFILE,
+  registryAliases: { 'localhost:5000': 'registry.example.internal:5000' },
+});
+```
+
+The aliases only affect matching; the image nodes keep their names.
+
 ## API
 
 Each source translates its API into one neutral model (`CiSnapshot`); the graph is built from

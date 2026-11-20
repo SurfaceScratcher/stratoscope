@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { traverse, validateTopology, type DomainProfile, type Topology } from 'stratoscope/core';
-import { buildTopology, combineWithInfra, imageName, linkToInfra, type CiSnapshot } from '../src/index.js';
+import { buildTopology, canonicalImage, combineWithInfra, imageName, linkToInfra, type CiSnapshot } from '../src/index.js';
 
 const INFRA: DomainProfile = {
   id: 'infra',
@@ -68,6 +68,34 @@ describe('linkToInfra', () => {
     expect(imageName('app:${TAG:-latest}')).toBe('app');
     expect(imageName('docker.io/library/nginx:1')).toBe('nginx');
     expect(imageName('localhost:5000/team/app:${T}')).toBe('localhost:5000/team/app');
+  });
+});
+
+describe('registry aliases', () => {
+  // The CI pushes to the registry on the build host, the servers pull it under its network name
+  const local = buildTopology({ source: 'woodpecker', repos: [{ repo: { slug: 'team/app' }, pipelines: [{ number: 3, state: 'success', workflows: [{ name: 'build', state: 'success', steps: [{ name: 'image', state: 'success', kind: 'step', outputs: [{ kind: 'image', target: 'localhost:5000/team/app' }] }] }] }] }] });
+  const servers: Topology = {
+    name: 'Servers',
+    layers: [{ id: 'container', label: 'Containers' }],
+    nodes: [{ id: 'c:app', label: 'app', type: 'container', layer: 'container', column: 'prod', meta: { Image: 'registry.example.internal:5000/team/app:prod-123' } }],
+    edges: [],
+  };
+  const aliases = { 'localhost:5000': 'registry.example.internal:5000' };
+
+  it('matches images across names of the same registry', () => {
+    expect(linkToInfra(local, servers)).toEqual([]);
+    expect(linkToInfra(local, servers, { registryAliases: aliases })).toEqual([{ from: 'c:app', to: 'o:image:localhost:5000/team/app', kind: 'runs-image' }]);
+    const both = combineWithInfra(local, servers, { registryAliases: aliases });
+    expect(both.edges.filter((e) => e.kind === 'runs-image')).toHaveLength(1);
+    // Only for matching: the image keeps its name
+    expect(both.nodes.find((n) => n.type === 'image')).toMatchObject({ label: 'team/app', meta: { Target: 'localhost:5000/team/app' } });
+    expect(both.profile).not.toHaveProperty('registryAliases');
+  });
+
+  it('maps whole registry names only', () => {
+    expect(canonicalImage('LOCALHOST:5000/a/b:1', { 'https://localhost:5000/': 'reg:5000' })).toBe('reg:5000/a/b');
+    expect(canonicalImage('localhost:50001/a/b', aliases)).toBe('localhost:50001/a/b');
+    expect(canonicalImage('nginx:1', aliases)).toBe('nginx');
   });
 });
 
