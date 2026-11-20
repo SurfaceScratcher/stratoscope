@@ -38,6 +38,8 @@ npx stratoscope-ci --from snapshot.json -f json -o topology.json
 | `--config <owner/name>=<file>` | pipeline config of a repository, e.g. from a local checkout; repeat for more (see [Results](#results)) |
 | `--skip-config` | do not read the config from the Woodpecker API |
 | `--outputs <file>` | rules for results the config does not show |
+| `--results latest` | results from the latest run that built them, not only from the fetched pipelines (see [below](#the-latest-build-of-every-result)) |
+| `--results-branch <b>`, `--results-event <e>`, `--results-depth <n>` | which older runs count for `--results latest`, and how many to load at most |
 
 The JSON topology carries the CI profile and each node's status, so `<Scene>`,
 `<Diagram>`, `toSvg` and `toDrawio` from [stratoscope](https://github.com/SurfaceScratcher/stratoscope/tree/main/packages/stratoscope) show it without further options.
@@ -107,6 +109,27 @@ Put host names in `secrets`, never the secret values themselves. In code:
 `attachOutputs(repo, pipeline, configFiles, rules)` fills a pipeline's steps, `detectOutputs(step)`
 reads one step's config, and `fetchSnapshot` takes `configFiles`, `outputRules` and `readConfig`.
 
+### The latest build of every result
+
+By default results come from the fetched pipelines (`-n`, `-b`). In a repository with many
+feature-branch runs, the builds and deploys that matter run rarely, so an image may be missing or
+show an old state. `--results latest` fills the result layer from the latest run whose producing
+step finished, however far back:
+
+```bash
+stratoscope-ci -r acme/shop -n 5 --results latest --results-branch default --results-event tag
+```
+
+- Every result the config of the fetched pipelines can produce is looked for; the CLI pages back
+  through older runs until each is found, at most `--results-depth` runs (default 100).
+- `--results-branch` (`default` = the default branch) and `--results-event` limit which runs count;
+  a run on a listed branch or of a listed event is enough. Without them every run counts.
+- The pipelines, workflows and steps stay the fetched ones. A result carries `Pipeline` and `Link`
+  of the run its state comes from; the snapshot keeps those runs in `producers`, cut down to the
+  producing steps.
+
+In code: `fetchSnapshot({ results: 'latest', resultsBranches, resultsEvents, resultsDepth })`.
+
 ## With the infrastructure
 
 The images a pipeline builds are the ones containers run, and its deploy targets are the
@@ -130,6 +153,18 @@ The CI layers sit at the bottom, with the results right below the hosts. Each co
 anchor: repositories are anchored on their steps, hosts on their containers. Both link kinds pass
 no failure on. Click a failed step to see which running containers are now outdated; their
 endpoints are not marked as affected. `linkToInfra(ci, infra)` returns just the edges.
+
+If the CI pushes to a registry under another name than the one the hosts pull from (`localhost:5000`
+on the build host, `registry.example.internal:5000` on the network), say they are the same:
+
+```ts
+combineWithInfra(ciTopology, infraTopology, {
+  fallback: INFRA_PROFILE,
+  registryAliases: { 'localhost:5000': 'registry.example.internal:5000' },
+});
+```
+
+The aliases only affect matching; the image nodes keep their names.
 
 ## API
 

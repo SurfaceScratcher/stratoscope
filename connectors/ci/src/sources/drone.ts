@@ -1,5 +1,6 @@
 import type { CiPipeline, CiSnapshot, CiSource, FetchOptions } from '../types.js';
-import { attachOutputs } from '../outputs.js';
+import { attachOutputs, configOutputs } from '../outputs.js';
+import { latestProducers } from './producers.js';
 import { apiGetter, pipelineCount, slugPath } from './http.js';
 
 /** The parts of the Drone API (2.x) this source reads. */
@@ -124,8 +125,16 @@ export const drone: CiSource = {
       // The list leaves out stages and steps; the single build has them
       const builds = await Promise.all(latest.map((b) => get<DroneBuild>(`/repos/${slugPath(slug)}/builds/${b.number}`)));
       // Drone's API has no config; outputs come from `configFiles` (e.g. a local checkout) and the rules
-      const pipelines = builds.map((b) => attachOutputs(slug, fromDrone(server, slug, b), opts.configFiles?.[slug], opts.outputRules));
-      snapshot.repos.push({ repo: { slug, link: `${server}/${slug}` }, pipelines });
+      const toPipeline = (b: DroneBuild) => attachOutputs(slug, fromDrone(server, slug, b), opts.configFiles?.[slug], opts.outputRules);
+      const pipelines = builds.map(toPipeline);
+      const producers = opts.results === 'latest'
+        ? await latestProducers(pipelines, configOutputs(slug, opts.configFiles?.[slug], opts.outputRules), {
+          list: async (page, perPage) => (await get<DroneBuild[]>(`/repos/${slugPath(slug)}/builds?${new URLSearchParams({ page: String(page), per_page: String(perPage) })}`))
+            .map((b) => ({ number: b.number, event: b.event, branch: branchOf(b) })),
+          load: async (run) => toPipeline(await get<DroneBuild>(`/repos/${slugPath(slug)}/builds/${run.number}`)),
+        }, opts, repo.default_branch)
+        : [];
+      snapshot.repos.push({ repo: { slug, link: `${server}/${slug}` }, pipelines, ...(producers.length && { producers }) });
     }
     return snapshot;
   },

@@ -72,7 +72,7 @@ export function buildTopology(snapshot: CiSnapshot, opts: BuildOptions = {}): To
   const edges: GraphEdge[] = [];
   const results = new Results(nodes, edges);
 
-  for (const { repo, pipelines } of snapshot.repos) {
+  for (const { repo, pipelines, producers } of snapshot.repos) {
     const column = repo.slug;
     for (const p of pipelines) {
       const pid = `p:${column}#${p.number}`;
@@ -101,6 +101,8 @@ export function buildTopology(snapshot: CiSnapshot, opts: BuildOptions = {}): To
         addSteps(w, wid, column, groupOf(w), nodes, edges, (s, id) => results.add(s, id, column, p.number));
       }
     }
+    // Older runs only for the results: their steps are not in the graph, the result names the run
+    for (const p of producers ?? []) for (const w of p.workflows) for (const s of w.steps) results.add(s, undefined, column, p.number);
   }
 
   return {
@@ -120,7 +122,8 @@ class Results {
   constructor(private nodes: GraphNode[], private edges: GraphEdge[]) {}
   get any() { return this.byId.size > 0; }
 
-  add(step: CiStep, stepId: string, repo: string, pipeline: number) {
+  /** `stepId` is left out for steps of runs that are not in the graph. */
+  add(step: CiStep, stepId: string | undefined, repo: string, pipeline: number) {
     for (const o of step.outputs ?? []) {
       const id = outputId(o, repo);
       const status = statusOfState(step.state);
@@ -130,17 +133,27 @@ class Results {
         entry = { node, pipeline };
         this.byId.set(id, entry);
         this.nodes.push(node);
+        setRun(node, repo, pipeline, step);
       } else if (status !== 'unknown' && (entry.node.status === 'unknown' || pipeline > entry.pipeline)) {
         // A skipped run says nothing about the result; otherwise the latest run counts
         entry.node.status = status;
         entry.pipeline = pipeline;
+        setRun(entry.node, repo, pipeline, step);
       }
       const meta = entry.node.meta!;
       if (o.tags?.length) meta.Tags = [...new Set([...String(meta.Tags ?? '').split(', ').filter(Boolean), ...o.tags])].join(', ');
       if (o.via && !String(meta.Via ?? '').split(', ').includes(o.via)) meta.Via = meta.Via ? `${meta.Via}, ${o.via}` : o.via;
-      this.edges.push({ from: id, to: stepId, kind: o.kind === 'deploy' ? 'deploys' : 'builds' });
+      if (stepId) this.edges.push({ from: id, to: stepId, kind: o.kind === 'deploy' ? 'deploys' : 'builds' });
     }
   }
+}
+
+/** The run a result's status comes from: `#42`, or `owner/name#42` for a shared result of another repository. */
+function setRun(node: GraphNode, repo: string, pipeline: number, step: CiStep) {
+  const meta = node.meta!;
+  meta.Pipeline = node.column === repo ? `#${pipeline}` : `${repo}#${pipeline}`;
+  if (step.link) meta.Link = step.link;
+  else delete meta.Link;
 }
 
 function addSteps(w: CiWorkflow, wid: string, column: string, group: string, nodes: GraphNode[], edges: GraphEdge[], onStep: (s: CiStep, id: string) => void) {

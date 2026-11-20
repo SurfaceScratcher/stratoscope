@@ -35,6 +35,14 @@ Results (images, packages, releases, deploy targets) come from the pipeline conf
       --outputs <file>      JSON rules for what the config does not show:
                             { "secrets": { "deploy-host": "prod" },
                               "steps": { "owner/name": { "workflow/step": [{ "kind": "deploy", "target": "prod:/srv/app" }] } } }
+      --results <mode>      window: results of the fetched pipelines only (default)
+                            latest: every result the config can produce, from the latest run
+                            whose producing step finished, however far back
+      --results-branch <b>  with latest: only runs on this branch count; "default" for the
+                            repository's default branch; repeat for more (default: any)
+      --results-event <e>   with latest: runs of this event count too (tag, deployment, cron, …);
+                            repeat for more
+      --results-depth <n>   with latest: older runs to load per repository at most (default: 100)
   -o, --out <file>          write here (default: stdout)
   -h, --help                show this help
 `;
@@ -53,6 +61,10 @@ async function main() {
       config: { type: 'string', multiple: true },
       'skip-config': { type: 'boolean' },
       outputs: { type: 'string' },
+      results: { type: 'string', default: 'window' },
+      'results-branch': { type: 'string', multiple: true },
+      'results-event': { type: 'string', multiple: true },
+      'results-depth': { type: 'string' },
       out: { type: 'string', short: 'o' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -62,6 +74,10 @@ async function main() {
   if (!['json', 'svg', 'drawio', 'snapshot'].includes(format)) fail(`unknown format "${format}"`);
   const view = values.view as DiagramView;
   if (view !== 'layers' && view !== 'columns') fail(`unknown view "${values.view}"`);
+  const results = values.results;
+  if (results !== 'window' && results !== 'latest') fail(`unknown results mode "${results}"`);
+  const resultsDepth = values['results-depth'] === undefined ? undefined : Number(values['results-depth']);
+  if (resultsDepth !== undefined && (!Number.isInteger(resultsDepth) || resultsDepth < 0)) fail('--results-depth must be a number');
 
   let snapshot: CiSnapshot;
   if (values.from) {
@@ -87,6 +103,10 @@ async function main() {
       readConfig: !values['skip-config'],
       configFiles,
       outputRules,
+      results,
+      resultsBranches: values['results-branch'],
+      resultsEvents: values['results-event'],
+      resultsDepth,
       server: server!,
       token: token!,
       repos: values.repo,
